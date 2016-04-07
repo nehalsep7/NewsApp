@@ -52,26 +52,63 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected String doInBackground(String... params) {
             URL url;
-            String result = "";
+            String s = "";
             HttpURLConnection httpURLConnection = null;
             try {
                 url = new URL(params[0]);
-                httpURLConnection = (HttpURLConnection)url.openConnection();
+                httpURLConnection = (HttpURLConnection) url.openConnection();
                 InputStream inputStream = httpURLConnection.getInputStream();
                 InputStreamReader reader = new InputStreamReader(inputStream);
                 int data = reader.read();
-                while (data != -1){
-                    char current = (char)data;
-                    result += current;
+                while (data != -1) {
+                    char current = (char) data;
+                    s += current;
                     data = reader.read();
                 }
-               //Log.i("Result",result);
-                return result;
-            } catch (MalformedURLException e) {
-                e.printStackTrace();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+                //Log.i("Result",result);
+                //return result;
+                String newsURL = "";
+                //JSONObject jsonObject = new JSONObject(s);
+                Object obj = new JSONTokener(s).nextValue();
+                if (obj instanceof JSONArray) {
+                    array = new JSONArray(s);
+                    newsDb.execSQL("DELETE FROM News_articles");
+                    for (int i = 0; i < 20; i++) {
+                        //System.out.println(array.getString(i));
+                        DownloadNews newsContent = new DownloadNews();
+                        String articleId = array.getString(i);
+                       // String content = newsContent.execute("https://hacker-news.firebaseio.com/v0/item/" + articleId + ".json?print=pretty").get();
+                        url = new URL("https://hacker-news.firebaseio.com/v0/item/" + articleId + ".json?print=pretty");
+                        httpURLConnection = (HttpURLConnection)url.openConnection();
+                        inputStream = httpURLConnection.getInputStream();
+                        reader = new InputStreamReader(inputStream);
+                        data = reader.read();
+                        String content="";
+                        while (data != -1) {
+                            char current = (char) data;
+                            content += current;
+                            data = reader.read();
+                        }
+                        JSONObject jsonObject = new JSONObject(content);
+                        String newsTitle = jsonObject.getString("title");
+                        //newsLink.add(newsTitle);
+                        if (jsonObject.has("url")) {
+                            newsURL = jsonObject.getString("url");
+                        } else newsURL = "";
+                        newsId.add(Integer.valueOf(articleId));
+                        newsUrls.put(Integer.valueOf(articleId), newsURL);
+                        newsTitles.put(Integer.valueOf(articleId), newsTitle);
+                        String sql = "INSERT INTO News_articles(articleId, url, title) VALUES (? , ?, ? )";
+                        SQLiteStatement statement = newsDb.compileStatement(sql);
+                        statement.bindString(1, articleId);
+                        statement.bindString(2, newsURL);
+                        statement.bindString(3, newsTitle);
+                        statement.execute();
+                    }
+                }
+            }catch (Exception e) {
+                        e.printStackTrace();
+                    }
             return null;
         }
 
@@ -79,42 +116,12 @@ public class MainActivity extends AppCompatActivity {
         protected void onPostExecute(String s) {
 //            Log.i("Json Data", s);
             super.onPostExecute(s);
-            String newsURL = "";
 
-            try {
-                //JSONObject jsonObject = new JSONObject(s);
-                Object obj = new JSONTokener(s).nextValue();
-                if(obj instanceof JSONArray) {
-                    array = new JSONArray(s);
-                    newsDb.execSQL("DELETE FROM News_articles");
-                    for (int i = 0; i < 20; i++) {
-                        //System.out.println(array.getString(i));
-                        DownloadNews newsContent = new DownloadNews();
-                        String articleId = array.getString(i);
-                        String content = newsContent.execute("https://hacker-news.firebaseio.com/v0/item/" + articleId + ".json?print=pretty").get();
-                            JSONObject jsonObject = new JSONObject(content);
-                            String newsTitle = jsonObject.getString("title");
-                            //newsLink.add(newsTitle);
-                            if(jsonObject.has("url")){
-                                newsURL = jsonObject.getString("url");
-                            }
-                            else newsURL = "";
-                            newsId.add(Integer.valueOf(articleId));
-                            newsUrls.put(Integer.valueOf(articleId), newsURL);
-                            newsTitles.put(Integer.valueOf(articleId), newsTitle);
-                        String sql ="INSERT INTO News_articles(articleId, url, title) VALUES (? , ?, ? )";
-                        SQLiteStatement statement = newsDb.compileStatement(sql);
-                        statement.bindString(1,articleId);
-                        statement.bindString(2,newsURL);
-                        statement.bindString(3,newsTitle);
-                        statement.execute();
-                    }
 //                    Log.i("News Ids",newsId.toString());
 //                    Log.i("News Titles",newsTitles.toString());
 //                    Log.i("News URL",newsUrls.toString());
 
-                    arrayAdapter = new ArrayAdapter<String>(getApplicationContext(),android.R.layout.simple_list_item_1,listViewTiles);
-                    newsList.setAdapter(arrayAdapter);
+                    updateList();
                     newsList.setOnItemClickListener(new AdapterView.OnItemClickListener() {
                         @Override
                         public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
@@ -126,7 +133,7 @@ public class MainActivity extends AppCompatActivity {
                             Log.i("URL", webViewUrl.get(position));
                         }
                     });
-                }
+
                 arrayAdapter.notifyDataSetChanged();
                 //System.out.println("List data:" +newsLink);
                 //ArrayAdapter<String> arrayAdapter = new ArrayAdapter<String>(this,android.R.layout.simple_list_item_1,newsLink);
@@ -139,13 +146,6 @@ public class MainActivity extends AppCompatActivity {
 //                    }
 //                });
 
-            } catch (JSONException e) {
-                e.printStackTrace();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            } catch (ExecutionException e) {
-                e.printStackTrace();
-            }
         }
     }
 
@@ -158,16 +158,18 @@ public class MainActivity extends AppCompatActivity {
         newsDb = this.openOrCreateDatabase("News",MODE_PRIVATE,null);
 
         newsDb.execSQL("CREATE TABLE IF NOT EXISTS News_articles (id INTEGER PRIMARY KEY, articleId INTEGER, url VARCHAR,title VARCHAR, contents VARCHAR)");
+        updateList();
+        arrayAdapter = new ArrayAdapter<String>(getApplicationContext(),android.R.layout.simple_list_item_1,listViewTiles);
+        newsList.setAdapter(arrayAdapter);
+       // downloadNews.execute("https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty");
         try {
-            int j =0;
-            downloadNews.execute("https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty").get();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        } catch (ExecutionException e) {
+            downloadNews.execute("https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty");
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
     public void updateList(){
+        Log.i("Update List","updated");
         Cursor c = newsDb.rawQuery("SELECT * FROM News_articles ORDER BY articleId DESC",null);
         int articleIdIndex = c.getColumnIndex("articleId");
         int newsUrlId = c.getColumnIndex("url");
